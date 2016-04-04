@@ -13,7 +13,13 @@ var Route = ReactRouter.Route;
 var History = ReactRouter.History;
 
 // Helpers
-var helper = require('../scripts/helpers');							
+var helper = require('../scripts/helpers');		
+
+
+// Firebase and Re-base  (Re-base great tool with Firebase for state changes)
+var Rebase = require('re-base');
+// Hook up to the DB on Firebase
+var base = Rebase.createClass('https://tazc-catch-of-the-day.firebaseio.com/');
 
 // Create Browser History (Gets rid of # in URL)
 var createBrowserHistory = require('history/lib/createBrowserHistory');
@@ -22,12 +28,48 @@ var createBrowserHistory = require('history/lib/createBrowserHistory');
 var App = React.createClass({
 
 	// Set initial state of fishes and order objects. Default key for init state.
+	// BASE REACT FRAMEWORK FUNCTION
 	getInitialState: function(){
 		return {
 			fishes: {},
 			order: {}
 		}
 	},
+
+	// Runs once when App comp loads. Used to get initial data.
+	// BASE REACT FRAMEWORK FUNCTION
+	componentDidMount : function(){
+
+		// Take our state and synch it with Firebase
+		// this.props.params.storeId + '/fishes' stores the data in the firebase
+		// url with the extension of /fishes. 
+		base.syncState(this.props.params.storeId + '/fishes', {
+			context: this,
+			state: 'fishes'
+		});
+		var theStore = this.props.params.storeId;
+		var localStorageReference = localStorage.getItem('order-'+theStore);
+
+		// If local storage has something for this store
+		if (localStorageReference) {
+			// Update the components state to reflect what is in localStorage
+			// Must parse JSON since its a JSON string.
+			this.setState({
+				order: JSON.parse(localStorageReference)
+			})
+		}
+	},
+
+	// Everytime a prop or state updates
+	// BASE REACT FRAMEWORK FUNCTION
+	componentWillUpdate : function(nextProp,nextState){
+		console.log('next state ' , nextProp);
+		var theStore = this.props.params.storeId;
+
+		// Set in localStorage. MUST be JSON since localStorage only accepts strings.
+		localStorage.setItem('order-'+ theStore, JSON.stringify(nextState.order));
+	},
+
 	addFish: function(fish){
 
 		var timestamp = (new Date()).getTime();
@@ -63,13 +105,13 @@ var App = React.createClass({
 		bracket notation. The elements 'key' and 'index' helps us identify each element if we need
 		to change it in the future.
 		*/
-		console.log(key);
+		
 		return (
 		<Fish key={key} index={key} addToOrder={this.addToOrder} details={this.state.fishes[key]} ></Fish>
 		)
 	},
 	render: function(){
-		console.log('render app', this);
+		// console.log('render app', this);
 		 /*
 		 'Object.keys' turns the object (this.state.fishes) into an array with the key values.
 		 [fish1,fish2,fish3,...]. We then map that array and run 'renderEachFish' on each array index.
@@ -83,7 +125,7 @@ var App = React.createClass({
 						{Object.keys(this.state.fishes).map(this.renderEachFish)}
 					</ul>
 				</div>
-				<Order></Order>
+				<Order fishes={this.state.fishes} order={this.state.order}></Order>
 				<Inventory addFish={this.addFish} loadSamples={this.loadSamples}></Inventory>
 			</div>
 		)
@@ -101,7 +143,7 @@ var Fish = React.createClass({
 		this.props.addToOrder(this.props.index);
 	},
 	render: function(e){
-		console.log(this);
+		//console.log(this);
 		var details = this.props.details;
 		var isAvailable = (details.status === 'available' ? true : false);
 		var buttonText = (isAvailable ? 'Add to Order' : 'Sold Out!');
@@ -113,7 +155,7 @@ var Fish = React.createClass({
 			<span className="price">{helper.formatPrice(details.price)}</span>
 			</h3>
 			<p>{details.desc}</p>
-			<button disabled={!isAvailable} onClick={this.addFishToOrder}> {buttonText} </button>
+			<button disabled={!isAvailable} onClick={this.addFishToOrder} > {buttonText} </button>
 			</li>
 		)
 	}
@@ -173,9 +215,68 @@ var Header = React.createClass({
 // Order
 
 var Order = React.createClass({
-	render: function(){
+
+	// Map out the orders. Run function on each array item.
+	showOrder : function(key) {
+		console.log(key);
+		// Get fish from fishes
+		var fish = this.props.fishes[key];
+		console.log(fish);
+		var numOfFish = this.props.order[key];
+
+		// Get price times the number of that fish in the order
+		var price = fish.price * numOfFish;
+
+		// If fish doesn't exist or is 0
+		if (!fish || numOfFish === 0){
+			return ( 
+				<li key={key}>No more&nbsp;{fish.name}&nbsp;available.</li>
+			)
+		}
+
+		// Show fish in order slot
 		return (
-		<h1>Order</h1>
+			<li key={key}>
+			<div>{numOfFish}&nbsp;lbs</div>
+			<div>{fish.name}</div>
+			<span className="price">{helper.formatPrice(price)}</span>
+			</li>
+		)
+	},
+
+	render: function(){
+		// Get array of all the fishes in the order. Originally an object.
+		var orderIds = Object.keys(this.props.order);
+
+		// Reduce and run function on each array index to add up price.
+		var total = orderIds.reduce( (prevTotal, key) => {
+
+			// get fish
+			var fish = this.props.fishes[key];
+			// number of orders of that fish
+			var orderCount = this.props.order[key];
+			// If fish exists AND status is available
+			var isAvailable = fish && fish.status === 'available';
+
+			if (fish && isAvailable) {
+				return prevTotal + (orderCount * parseInt(fish.price) || 0);
+			}
+
+			return prevTotal;
+
+			// starting at 0
+		},0);
+		return (
+		<div className="order-wrap">
+			<h2 className="order-title">Your Order</h2>
+			<ul className="order">
+			{ orderIds.map( this.showOrder ) }
+				<li className="total">
+					<strong>Total:</strong>
+					{ helper.formatPrice(total) }
+				</li>
+			</ul>
+		</div>
 		)
 	}
 });
